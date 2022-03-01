@@ -1,0 +1,94 @@
+# Postgresql 
+version: '3'
+networks:
+    mynet:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: 192.168.55.0/24
+                  gateway: 192.168.55.1
+
+services:
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    environment:
+      POSTGRES_USER: directus
+      POSTGRES_PASSWORD: directus
+      POSTGRES_DB: directus
+    ports:
+      - "5432:5432"
+    volumes:
+      - directus_pg_data:/var/lib/postgresql/data
+    restart: always
+    networks:
+        mynet:
+          ipv4_address: 192.168.55.2
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: always
+    networks:
+        mynet:
+          ipv4_address: 192.168.55.5
+
+  api:
+    container_name: api
+    build:
+        context: ./api
+        dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:  
+        - 8055:8055
+    volumes:
+        - ./api:/opt/api
+        - /opt/api/node_modules
+        - /opt/api/.next
+    depends_on:
+        - postgres
+    links:
+        - postgres
+    command:  > 
+        sh -c "npx directus bootstrap && npx directus start"
+    networks:
+        mynet:
+          ipv4_address: 192.168.55.4
+    env_file:
+        - api/.env
+    environment:
+        - DB_HOST=postgres
+
+  app:
+    container_name: app
+    build:
+        context: ./app
+        dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - api
+    ports:  
+        - 3000:3000
+    volumes:
+        - ./app:/opt/app
+        - /opt/app/node_modules
+        - /opt/app/.next
+    command: yarn run dev
+    networks:
+        mynet:
+          ipv4_address: 192.168.55.3
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - NEXT_PUBLIC_API_URL=http://api:8055
+    links:
+      - api
+      - redis
+    
+      
+  
+volumes:
+    directus_pg_data:
